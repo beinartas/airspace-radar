@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SYS.AIRSPACE // TACTICAL ADS-B MONITOR</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap');
+
+    :root {
+      --bg: #000000;
+      --panel-bg: rgba(4, 6, 4, 0.92);
+      --primary: #ff9d00;
+      --primary-dim: rgba(255, 157, 0, 0.25);
+      --primary-faint: rgba(255, 157, 0, 0.08);
+      --secondary: #00ff66;
+      --secondary-dim: rgba(0, 255, 102, 0.25);
+      --accent: #00e5ff;
+      --danger: #ff2a2a;
+      --text: #ffbe55;
+      --muted: #8a5a14;
+      --border: rgba(255, 157, 0, 0.38);
+      --glow: 0 0 8px rgba(255, 157, 0, 0.45);
+      --font-mono: 'Share Tech Mono', 'Consolas', 'Courier New', monospace;
+      --font-display: 'VT323', 'Share Tech Mono', monospace;
+    }
+
+    body.theme-phosphor {
+      --primary: #00ff66;
+      --primary-dim: rgba(0, 255, 102, 0.24);
+      --primary-faint: rgba(0, 255, 102, 0.07);
+      --secondary: #ffb000;
+      --secondary-dim: rgba(255, 176, 0, 0.24);
+      --accent: #00f0ff;
+      --danger: #ff2a2a;
+      --text: #7dffb0;
+      --muted: #147a3d;
+      --border: rgba(0, 255, 102, 0.36);
+      --glow: 0 0 8px rgba(0, 255, 102, 0.45);
+    }
+
+    body.theme-magi {
+      --primary: #ff5e00;
+      --primary-dim: rgba(255, 94, 0, 0.25);
+      --primary-faint: rgba(255, 94, 0, 0.08);
+      --secondary: #00e5ff;
+      --secondary-dim: rgba(0, 229, 255, 0.25);
+      --accent: #39ff14;
+      --danger: #ff1744;
+      --text: #ff9457;
+      --muted: #8f3900;
+      --border: rgba(255, 94, 0, 0.42);
+      --glow: 0 0 8px rgba(255, 94, 0, 0.5);
+    }
+
+    body.theme-cyber {
+      --primary: #00e5ff;
+      --primary-dim: rgba(0, 229, 255, 0.25);
+      --primary-faint: rgba(0, 229, 255, 0.08);
+      --secondary: #39ff14;
+      --secondary-dim: rgba(57, 255, 20, 0.25);
+      --accent: #ff00aa;
+      --danger: #ff2a55;
+      --text: #7ef2ff;
+      --muted: #0e6f7d;
+      --border: rgba(0, 229, 255, 0.38);
+      --glow: 0 0 8px rgba(0, 229, 255, 0.45);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #000000;
+      color: var(--primary);
+      font-family: var(--font-mono);
+      overflow: hidden;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    /* Subtle CRT scanlines */
+    .crt-overlay {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%,
+        rgba(0, 0, 0, 0.28) 50%
+      );
+      background-size: 100% 4px;
+      opacity: 0.45;
+    }
+
+    .crt-overlay.hidden {
+      display: none;
+    }
+
+    .vignette {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      z-index: 89;
+      background: radial-gradient(circle at center, transparent 62%, rgba(0, 0, 0, 0.72) 100%);
+    }
+
+    /* Main Grid */
+    .app-shell {
+      display: grid;
+      grid-template-rows: 46px 1fr 28px;
+      grid-template-columns: 270px 1fr 340px;
+      grid-template-areas:
+        "header header header"
+        "left center right"
+        "footer footer footer";
+      width: 100vw;
+      height: 100vh;
+      gap: 6px;
+      padding: 6px;
+      background: #000000;
+    }
+
+    /* Panel Styling */
+    .panel {
+      position: relative;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .panel::before,
+    .panel::after {
+      content: "";
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      pointer-events: none;
+      border-color: var(--primary);
+      border-style: solid;
+    }
+
+    .panel::before {
+      top: -1px;
+      left: -1px;
+      border-width: 2px 0 0 2px;
+    }
+
+    .panel::after {
+      bottom: -1px;
+      right: -1px;
+      border-width: 0 2px 2px 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      background: var(--primary-faint);
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--primary);
+      text-shadow: var(--glow);
+      flex-shrink: 0;
+    }
+
+    .panel-header .badge {
+      padding: 1px 5px;
+      border: 1px solid var(--primary);
+      font-size: 10px;
+      color: var(--bg);
+      background: var(--primary);
+      font-weight: bold;
+    }
+
+    /* Header */
+    .header {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      border: 1px solid var(--border);
+      background: var(--primary-faint);
+      gap: 10px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .brand-dot {
+      width: 9px;
+      height: 9px;
+      background: var(--secondary);
+      box-shadow: 0 0 8px var(--secondary);
+      animation: pulse 1.6s infinite ease-in-out;
+    }
+
+    .brand-title {
+      font-family: var(--font-display);
+      font-size: 22px;
+      letter-spacing: 2px;
+      color: var(--primary);
+      text-shadow: var(--glow);
+    }
+
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 12px;
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .meta-chip {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .meta-label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.8px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    button.btn {
+      background: #000000;
+      color: var(--primary);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.8px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.12s ease;
+    }
+
+    button.btn:hover {
+      background: var(--primary-dim);
+      border-color: var(--primary);
+      box-shadow: var(--glow);
+    }
+
+    button.btn.active {
+      background: var(--primary);
+      color: #000000;
+      border-color: var(--primary);
+      font-weight: bold;
+    }
+
+    /* Left Column */
+    .left-col {
+      grid-area: left;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 8px;
+    }
+
+    .stat-box {
+      border: 1px solid var(--border);
+      background: #000000;
+      padding: 6px 8px;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+
+    .stat-val {
+      font-family: var(--font-display);
+      font-size: 26px;
+      color: var(--primary);
+      text-shadow: var(--glow);
+      margin-top: 2px;
+    }
+
+    .stat-val.sec {
+      color: var(--secondary);
+      text-shadow: 0 0 8px var(--secondary-dim);
+    }
+
+    .alt-bars {
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .alt-row {
+      display: grid;
+      grid-template-columns: 58px 1fr 30px;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .alt-track {
+      height: 10px;
+      border: 1px solid var(--border);
+      background: #000000;
+      position: relative;
+    }
+
+    .alt-fill {
+      height: 100%;
+      background: var(--primary);
+      box-shadow: var(--glow);
+      width: 0%;
+      transition: width 0.35s ease;
+    }
+
+    .log-panel {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .log-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--primary-dim) #000;
+    }
+
+    .log-entry {
+      color: var(--text);
+      border-left: 2px solid var(--border);
+      padding-left: 6px;
+      word-break: break-word;
+    }
+
+    .log-entry.warn {
+      color: var(--danger);
+      border-left-color: var(--danger);
+    }
+
+    .log-entry.acq {
+      color: var(--secondary);
+      border-left-color: var(--secondary);
+    }
+
+    /* Center Radar */
+    .center-col {
+      grid-area: center;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .radar-wrap {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      background: #000000;
+      overflow: hidden;
+    }
+
+    canvas#radarCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    canvas#radarCanvas.dragging {
+      cursor: grabbing;
+    }
+
+    .radar-hud-tl,
+    .radar-hud-tr,
+    .radar-hud-bl,
+    .radar-hud-br {
+      position: absolute;
+      pointer-events: none;
+      font-size: 11px;
+      color: var(--text);
+      letter-spacing: 0.8px;
+      padding: 8px 10px;
+    }
+
+    .radar-hud-tl { top: 0; left: 0; }
+    .radar-hud-tr { top: 0; right: 0; text-align: right; }
+    .radar-hud-bl { bottom: 0; left: 0; }
+    .radar-hud-br { bottom: 0; right: 0; text-align: right; pointer-events: auto; }
+
+    .range-pills {
+      display: flex;
+      gap: 4px;
+    }
+
+    /* Right Column */
+    .right-col {
+      grid-area: right;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+
+    .target-card {
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .target-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px dashed var(--border);
+      padding-bottom: 6px;
+    }
+
+    .target-callsign {
+      font-family: var(--font-display);
+      font-size: 34px;
+      line-height: 0.95;
+      color: var(--secondary);
+      text-shadow: 0 0 10px var(--secondary-dim);
+      letter-spacing: 2px;
+    }
+
+    .target-sub {
+      font-size: 11px;
+      color: var(--text);
+      margin-top: 2px;
+    }
+
+    .target-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .metric-cell {
+      border: 1px solid var(--border);
+      padding: 5px 6px;
+      background: #000000;
+    }
+
+    .metric-label {
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 0.8px;
+    }
+
+    .metric-val {
+      font-family: var(--font-display);
+      font-size: 22px;
+      color: var(--primary);
+      margin-top: 1px;
+    }
+
+    .contacts-panel {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .contacts-table-wrap {
+      flex: 1;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--primary-dim) #000;
+    }
+
+    table.contacts {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    table.contacts thead th {
+      position: sticky;
+      top: 0;
+      background: #080808;
+      color: var(--muted);
+      text-align: left;
+      padding: 5px 6px;
+      border-bottom: 1px solid var(--border);
+      font-weight: normal;
+      font-size: 10px;
+      letter-spacing: 0.8px;
+    }
+
+    table.contacts tbody tr {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    table.contacts tbody tr:hover {
+      background: var(--primary-faint);
+    }
+
+    table.contacts tbody tr.selected {
+      background: var(--primary-dim);
+      color: #ffffff;
+    }
+
+    table.contacts tbody tr.emergency {
+      color: var(--danger);
+      animation: blink 1s infinite;
+    }
+
+    table.contacts td {
+      padding: 5px 6px;
+      white-space: nowrap;
+    }
+
+    /* Footer */
+    .footer {
+      grid-area: footer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      border: 1px solid var(--border);
+      background: var(--primary-faint);
+      font-size: 11px;
+      color: var(--text);
+    }
+
+    .poll-bar-wrap {
+      width: 160px;
+      height: 6px;
+      border: 1px solid var(--border);
+      background: #000000;
+    }
+
+    .poll-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--secondary);
+    }
+
+    /* Modal for Location */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: 380px;
+      background: #000000;
+      border: 1px solid var(--primary);
+      box-shadow: 0 0 24px var(--primary-dim);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .modal h3 {
+      font-family: var(--font-display);
+      font-size: 24px;
+      letter-spacing: 1.5px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+
+    .field-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field-row label {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .field-row input {
+      background: #000000;
+      border: 1px solid var(--border);
+      color: var(--primary);
+      padding: 6px 8px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .field-row input:focus {
+      border-color: var(--primary);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0.45; }
+    }
+
+    /* Responsive for narrower screens / tent mode */
+    @media (max-width: 1080px) {
+      .app-shell {
+        grid-template-columns: 1fr 300px;
+        grid-template-areas:
+          "header header"
+          "center right"
+          "footer footer";
+      }
+      .left-col {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="crt-overlay hidden" id="crtOverlay"></div>
+  <div class="vignette"></div>
+
+  <div class="app-shell">
+    <!-- HEADER -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-dot" id="statusDot"></div>
+        <div class="brand-title">AIRSPACE // ADS-B</div>
+      </div>
+
+      <div class="header-meta">
+        <div class="meta-chip">
+          <span class="meta-label">POS</span>
+          <span id="posReadout">LOCATING...</span>
+        </div>
+        <div class="meta-chip">
+          <span class="meta-label">FEED</span>
+          <span id="feedReadout">INIT</span>
+        </div>
+        <div class="meta-chip">
+          <span class="meta-label">UTC</span>
+          <span id="utcClock">00:00:00Z</span>
+        </div>
+        <div class="meta-chip">
+          <span class="meta-label">LOCAL</span>
+          <span id="localClock">00:00:00</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="btnLoc" title="Set Observer Coordinates">LOC</button>
+        <button class="btn active" id="btnMap" title="Toggle Country Contours (M)">MAP</button>
+        <button class="btn" id="btnSim" title="Toggle Simulation Mode">SIM</button>
+        <button class="btn" id="btnTheme" title="Cycle Color Theme (C)">THEME</button>
+        <button class="btn" id="btnCrt" title="Toggle CRT Scanlines">CRT</button>
+        <button class="btn" id="btnAudio" title="Toggle Audio Alerts">SFX</button>
+        <button class="btn" id="btnWake" title="Keep Screen Awake">WAKE</button>
+        <button class="btn" id="btnFs" title="Fullscreen (F)">FULL</button>
+      </div>
+    </header>
+
+    <!-- LEFT COLUMN -->
+    <aside class="left-col">
+      <section class="panel">
+        <div class="panel-header">
+          <span>AIRSPACE SUMMARY</span>
+          <span class="badge" id="sectorBadge">LIVE</span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-label">TRACKS</div>
+            <div class="stat-val sec" id="statCount">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">CLOSEST (NM)</div>
+            <div class="stat-val" id="statClosest">--</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">MAX ALT (FT)</div>
+            <div class="stat-val" id="statMaxAlt">--</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">MAX SPD (KTS)</div>
+            <div class="stat-val" id="statMaxSpd">--</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <span>ALTITUDE DISTRIBUTION</span>
+          <span>BANDS</span>
+        </div>
+        <div class="alt-bars">
+          <div class="alt-row">
+            <span>&gt;30K FT</span>
+            <div class="alt-track"><div class="alt-fill" id="barHigh"></div></div>
+            <span id="cntHigh">0</span>
+          </div>
+          <div class="alt-row">
+            <span>15-30K</span>
+            <div class="alt-track"><div class="alt-fill" id="barMed"></div></div>
+            <span id="cntMed">0</span>
+          </div>
+          <div class="alt-row">
+            <span>5-15K</span>
+            <div class="alt-track"><div class="alt-fill" id="barLow"></div></div>
+            <span id="cntLow">0</span>
+          </div>
+          <div class="alt-row">
+            <span>&lt;5K FT</span>
+            <div class="alt-track"><div class="alt-fill" id="barGnd"></div></div>
+            <span id="cntGnd">0</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-header">
+          <span>ACTIVITY LOG</span>
+          <span>FEED</span>
+        </div>
+        <div class="log-body" id="eventLog"></div>
+      </section>
+    </aside>
+
+    <!-- CENTER RADAR -->
+    <main class="center-col panel">
+      <div class="radar-wrap">
+        <canvas id="radarCanvas"></canvas>
+
+        <div class="radar-hud-tl">
+          <div>PROJECTION: AZIMUTHAL PPI</div>
+          <div>RANGE: <span id="hudRange">100</span> NM</div>
+        </div>
+
+        <div class="radar-hud-tr">
+          <div>MAP: <span id="hudMapStatus">LOADING</span></div>
+          <div>CENTER: <span id="hudLatLon">--</span></div>
+        </div>
+
+        <div class="radar-hud-bl">
+          <div>[DRAG] PAN &nbsp;|&nbsp; [WHEEL] ZOOM &nbsp;|&nbsp; [CLICK] SELECT &nbsp;|&nbsp; [R] RECENTER &nbsp;|&nbsp; [M] MAP &nbsp;|&nbsp; [F] FULL</div>
+        </div>
+
+        <div class="radar-hud-br">
+          <div class="range-pills">
+            <button class="btn" id="btnRecenter" title="Recenter on Observer (R)">HOME</button>
+            <button class="btn range-btn" data-range="25">25NM</button>
+            <button class="btn range-btn" data-range="50">50NM</button>
+            <button class="btn range-btn active" data-range="100">100NM</button>
+            <button class="btn range-btn" data-range="150">150NM</button>
+            <button class="btn range-btn" data-range="250">250NM</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT COLUMN -->
+    <aside class="right-col">
+      <section class="panel">
+        <div class="panel-header">
+          <span>SELECTED TRACK</span>
+          <button class="btn active" id="btnAutoCycle" style="padding:1px 6px;font-size:10px;">AUTO-CYCLE</button>
+        </div>
+        <div class="target-card">
+          <div class="target-top">
+            <div>
+              <div class="target-callsign" id="tCallsign">NO TRACK</div>
+              <div class="target-sub" id="tSub">SELECT TRACK OR ENABLE AUTO-CYCLE</div>
+            </div>
+            <div style="text-align:right;font-size:11px;">
+              <div id="tHex" style="color:var(--muted);">HEX: ------</div>
+              <div id="tSquawk" style="color:var(--text);">SQK: ----</div>
+            </div>
+          </div>
+
+          <div class="target-metrics">
+            <div class="metric-cell">
+              <div class="metric-label">ALTITUDE</div>
+              <div class="metric-val" id="tAlt">--</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-label">GROUND SPD</div>
+              <div class="metric-val" id="tSpd">--</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-label">TRACK</div>
+              <div class="metric-val" id="tHdg">--</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-label">VERT RATE</div>
+              <div class="metric-val" id="tVrate">--</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-label">DISTANCE</div>
+              <div class="metric-val" id="tDist">--</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-label">BEARING</div>
+              <div class="metric-val" id="tBrg">--</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel contacts-panel">
+        <div class="panel-header">
+          <span>ACTIVE TRACKS</span>
+          <span id="contactsCountBadge">0 TRACKED</span>
+        </div>
+        <div class="contacts-table-wrap">
+          <table class="contacts">
+            <thead>
+              <tr>
+                <th>CALLSIGN</th>
+                <th>TYPE</th>
+                <th>ALT</th>
+                <th>SPD</th>
+                <th>DIST</th>
+                <th>BRG</th>
+              </tr>
+            </thead>
+            <tbody id="contactsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <div>STATUS: <span id="footerStatus">INITIALIZING...</span></div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span>DATA REFRESH</span>
+        <div class="poll-bar-wrap">
+          <div class="poll-bar" id="pollBar"></div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- LOCATION MODAL -->
+  <div class="modal-backdrop" id="locModal">
+    <div class="modal">
+      <h3>OBSERVER COORDINATES</h3>
+      <div class="field-row">
+        <label>LATITUDE (DECIMAL DEGREES)</label>
+        <input type="number" step="0.0001" id="inputLat" placeholder="e.g. 52.5200" />
+      </div>
+      <div class="field-row">
+        <label>LONGITUDE (DECIMAL DEGREES)</label>
+        <input type="number" step="0.0001" id="inputLon" placeholder="e.g. 13.4050" />
+      </div>
+      <div style="font-size:11px;color:var(--muted);">
+        Tip: Use GPS for automatic browser geolocation, or enter custom coordinates.
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="btnUseGps">USE GPS</button>
+        <button class="btn" id="btnCancelLoc">CANCEL</button>
+        <button class="btn active" id="btnSaveLoc">APPLY</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      // --- STATE ---
+      const THEMES = ["", "theme-phosphor", "theme-magi", "theme-cyber"];
+      const THEME_NAMES = ["AMBER", "PHOSPHOR", "MAGI", "CYBER"];
+      const POLL_INTERVAL_MS = 8000;
+      const EARTH_RADIUS_NM = 3440.065;
+
+      const state = {
+        lat: 52.5200,
+        lon: 13.4050,
+        homeLat: 52.5200,
+        homeLon: 13.4050,
+        hasCustomLoc: false,
+        rangeNm: 100,
+        themeIdx: 0,
+        simMode: false,
+        crtEnabled: false,
+        mapEnabled: true,
+        audioEnabled: false,
+        autoCycle: true,
+        wakeLock: null,
+        planes: new Map(), // hex -> plane object
+        selectedHex: null,
+        lastPollTime: 0,
+        providerName: "INIT",
+        lastCycleTime: 0,
+        mapRings: [],
+        mapCacheKey: "",
+        cachedMapPath: null,
+      };
+
+      // --- DOM ---
+      const canvas = document.getElementById("radarCanvas");
+      const ctx = canvas.getContext("2d");
+      const el = {
+        posReadout: document.getElementById("posReadout"),
+        feedReadout: document.getElementById("feedReadout"),
+        utcClock: document.getElementById("utcClock"),
+        localClock: document.getElementById("localClock"),
+        hudRange: document.getElementById("hudRange"),
+        hudMapStatus: document.getElementById("hudMapStatus"),
+        hudLatLon: document.getElementById("hudLatLon"),
+        statCount: document.getElementById("statCount"),
+        statClosest: document.getElementById("statClosest"),
+        statMaxAlt: document.getElementById("statMaxAlt"),
+        statMaxSpd: document.getElementById("statMaxSpd"),
+        barHigh: document.getElementById("barHigh"),
+        barMed: document.getElementById("barMed"),
+        barLow: document.getElementById("barLow"),
+        barGnd: document.getElementById("barGnd"),
+        cntHigh: document.getElementById("cntHigh"),
+        cntMed: document.getElementById("cntMed"),
+        cntLow: document.getElementById("cntLow"),
+        cntGnd: document.getElementById("cntGnd"),
+        eventLog: document.getElementById("eventLog"),
+        contactsBody: document.getElementById("contactsBody"),
+        contactsCountBadge: document.getElementById("contactsCountBadge"),
+        footerStatus: document.getElementById("footerStatus"),
+        pollBar: document.getElementById("pollBar"),
+        tCallsign: document.getElementById("tCallsign"),
+        tSub: document.getElementById("tSub"),
+        tHex: document.getElementById("tHex"),
+        tSquawk: document.getElementById("tSquawk"),
+        tAlt: document.getElementById("tAlt"),
+        tSpd: document.getElementById("tSpd"),
+        tHdg: document.getElementById("tHdg"),
+        tVrate: document.getElementById("tVrate"),
+        tDist: document.getElementById("tDist"),
+        tBrg: document.getElementById("tBrg"),
+        crtOverlay: document.getElementById("crtOverlay"),
+        locModal: document.getElementById("locModal"),
+        inputLat: document.getElementById("inputLat"),
+        inputLon: document.getElementById("inputLon"),
+      };
+
+      // --- AUDIO SYNTH (90s sci-fi blip) ---
+      let audioCtx = null;
+      function playBlip(freq = 880, dur = 0.05, type = "sine", vol = 0.04) {
+        if (!state.audioEnabled) return;
+        try {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + dur);
+        } catch (_) {}
+      }
+
+      // --- LOGGING ---
+      function addLog(msg, kind = "") {
+        const now = new Date();
+        const ts = now.toTimeString().slice(0, 8);
+        const div = document.createElement("div");
+        div.className = `log-entry ${kind}`;
+        div.textContent = `[${ts}] ${msg}`;
+        el.eventLog.prepend(div);
+        while (el.eventLog.children.length > 45) {
+          el.eventLog.removeChild(el.eventLog.lastChild);
+        }
+      }
+
+      // --- GEO MATH ---
+      const toRad = (deg) => (deg * Math.PI) / 180;
+      const toDeg = (rad) => (rad * 180) / Math.PI;
+
+      function haversineNm(lat1, lon1, lat2, lon2) {
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(a)));
+      }
+
+      function bearingDeg(lat1, lon1, lat2, lon2) {
+        const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+        const x =
+          Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+          Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+      }
+
+      function destinationPoint(lat, lon, distNm, brgDeg) {
+        const d = distNm / EARTH_RADIUS_NM;
+        const brng = toRad(brgDeg);
+        const lat1 = toRad(lat);
+        const lon1 = toRad(lon);
+        const lat2 = Math.asin(
+          Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(brng)
+        );
+        const lon2 =
+          lon1 +
+          Math.atan2(
+            Math.sin(brng) * Math.sin(d) * Math.cos(lat1),
+            Math.cos(d) - Math.sin(lat1) * Math.sin(lat2)
+          );
+        return { lat: toDeg(lat2), lon: toDeg(lon2) };
+      }
+
+      function formatCoords(lat, lon) {
+        const ns = lat >= 0 ? "N" : "S";
+        const ew = lon >= 0 ? "E" : "W";
+        return `${Math.abs(lat).toFixed(3)}°${ns} ${Math.abs(lon).toFixed(3)}°${ew}`;
+      }
+
+      // --- SIMULATION GENERATOR ---
+      const SIM_TYPES = ["B738", "A320", "A359", "B77W", "B789", "E190", "CRJ9", "C172", "GLF6"];
+      const SIM_PREFIXES = ["DLH", "BAW", "AFR", "KLM", "RYR", "EZY", "UAL", "SAS", "SWR", "THY"];
+      let simFleet = [];
+
+      function initSimFleet() {
+        simFleet = [];
+        for (let i = 0; i < 24; i++) {
+          const brg = Math.random() * 360;
+          const dist = 6 + Math.random() * (state.rangeNm * 0.92);
+          const pos = destinationPoint(state.lat, state.lon, dist, brg);
+          const hex = (0x400000 + Math.floor(Math.random() * 0xffffff)).toString(16).slice(0, 6).toUpperCase();
+          const callsign = SIM_PREFIXES[i % SIM_PREFIXES.length] + (100 + Math.floor(Math.random() * 899));
+          simFleet.push({
+            hex,
+            callsign,
+            type: SIM_TYPES[i % SIM_TYPES.length],
+            reg: "SIM-" + hex.slice(0, 4),
+            lat: pos.lat,
+            lon: pos.lon,
+            alt: Math.round((4000 + Math.random() * 37000) / 100) * 100,
+            gs: Math.round(180 + Math.random() * 330),
+            track: Math.round(Math.random() * 359),
+            vrate: Math.round((Math.random() - 0.5) * 1800 / 100) * 100,
+            squawk: i === 7 ? "7700" : String(1000 + Math.floor(Math.random() * 6000)),
+          });
+        }
+      }
+
+      function stepSimFleet(dtSec) {
+        if (!simFleet.length) initSimFleet();
+        return simFleet.map((p) => {
+          const distNm = (p.gs / 3600) * dtSec;
+          const next = destinationPoint(p.lat, p.lon, distNm, p.track);
+          p.lat = next.lat;
+          p.lon = next.lon;
+          p.alt = Math.max(1200, Math.min(43000, p.alt + (p.vrate / 60) * dtSec));
+          const d = haversineNm(state.lat, state.lon, p.lat, p.lon);
+          if (d > state.rangeNm * 1.05) {
+            const reentry = destinationPoint(state.lat, state.lon, state.rangeNm * 0.92, Math.random() * 360);
+            p.lat = reentry.lat;
+            p.lon = reentry.lon;
+            p.track = Math.round(bearingDeg(p.lat, p.lon, state.lat, state.lon) + (Math.random() - 0.5) * 70);
+          }
+          return { ...p };
+        });
+      }
+
+      // --- LIVE ADS-B FETCHERS ---
+      async function fetchWithTimeout(url, ms = 6500) {
+        const ctrl = new AbortController();
+        const id = setTimeout(() => ctrl.abort(), ms);
+        try {
+          const res = await fetch(url, { signal: ctrl.signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } finally {
+          clearTimeout(id);
+        }
+      }
+
+      function normalizeAdsbV2(acList) {
+        if (!Array.isArray(acList)) return [];
+        const out = [];
+        for (const ac of acList) {
+          if (typeof ac.lat !== "number" || typeof ac.lon !== "number") continue;
+          const alt = typeof ac.alt_baro === "number" ? ac.alt_baro : (typeof ac.alt_geom === "number" ? ac.alt_geom : 0);
+          out.push({
+            hex: String(ac.hex || "").toUpperCase(),
+            callsign: String(ac.flight || ac.r || ac.hex || "UNKN").trim(),
+            type: ac.t || "---",
+            reg: ac.r || "---",
+            lat: ac.lat,
+            lon: ac.lon,
+            alt: Math.round(alt),
+            gs: typeof ac.gs === "number" ? Math.round(ac.gs) : 0,
+            track: typeof ac.track === "number" ? Math.round(ac.track) : 0,
+            vrate: typeof ac.baro_rate === "number" ? Math.round(ac.baro_rate) : 0,
+            squawk: ac.squawk || "----",
+          });
+        }
+        return out;
+      }
+
+      function normalizeOpenSky(data) {
+        if (!data || !Array.isArray(data.states)) return [];
+        const out = [];
+        for (const s of data.states) {
+          const lon = s[5], lat = s[6];
+          if (typeof lat !== "number" || typeof lon !== "number") continue;
+          const altM = typeof s[7] === "number" ? s[7] : (typeof s[13] === "number" ? s[13] : 0);
+          const velMs = typeof s[9] === "number" ? s[9] : 0;
+          const vrateMs = typeof s[11] === "number" ? s[11] : 0;
+          out.push({
+            hex: String(s[0] || "").toUpperCase(),
+            callsign: String(s[1] || s[0] || "UNKN").trim(),
+            type: "---",
+            reg: s[2] || "---",
+            lat,
+            lon,
+            alt: Math.round(altM * 3.28084),
+            gs: Math.round(velMs * 1.94384),
+            track: typeof s[10] === "number" ? Math.round(s[10]) : 0,
+            vrate: Math.round(vrateMs * 196.85),
+            squawk: s[14] || "----",
+          });
+        }
+        return out;
+      }
+
+      async function pollAircraft() {
+        state.lastPollTime = performance.now();
+        if (state.simMode) {
+          state.providerName = "SIMULATION";
+          ingestAircraft(stepSimFleet(POLL_INTERVAL_MS / 1000));
+          el.feedReadout.textContent = "SIMULATION";
+          el.footerStatus.textContent = "SIMULATION ACTIVE — SYNTHETIC RADAR TARGETS";
+          return;
+        }
+
+        const dist = Math.min(250, Math.max(25, state.rangeNm));
+        const latDelta = dist / 60;
+        const lonDelta = dist / (60 * Math.max(0.2, Math.cos(toRad(state.lat))));
+        const lamin = (state.lat - latDelta).toFixed(4);
+        const lamax = (state.lat + latDelta).toFixed(4);
+        const lomin = (state.lon - lonDelta).toFixed(4);
+        const lomax = (state.lon + lonDelta).toFixed(4);
+
+        const providers = [];
+        if (window.location.protocol.startsWith("http")) {
+          providers.push({
+            name: "ADSB.LOL (LOCAL PROXY)",
+            fn: async () => normalizeAdsbV2((await fetchWithTimeout(`/api/adsb?lat=${state.lat.toFixed(4)}&lon=${state.lon.toFixed(4)}&dist=${dist}`)).ac),
+          });
+        }
+        providers.push(
+          {
+            name: "ADSB.LOL",
+            fn: async () => normalizeAdsbV2((await fetchWithTimeout(`https://api.adsb.lol/v2/lat/${state.lat.toFixed(4)}/lon/${state.lon.toFixed(4)}/dist/${dist}`)).ac),
+          },
+          {
+            name: "OPENSKY",
+            fn: async () => normalizeOpenSky(await fetchWithTimeout(`https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`)),
+          }
+        );
+
+        for (const p of providers) {
+          try {
+            el.footerStatus.textContent = `QUERYING ${p.name}...`;
+            const list = await p.fn();
+            state.providerName = p.name;
+            el.feedReadout.textContent = `LIVE:${p.name}`;
+            ingestAircraft(list);
+            el.footerStatus.textContent = `SYNC OK [${p.name}] — ${list.length} TRACKS`;
+            return;
+          } catch (err) {
+            console.error(`[${p.name}]`, err);
+            addLog(`${p.name} ERROR (${err.message})`, "warn");
+          }
+        }
+
+        if (window.location.protocol === "file:") {
+          addLog("BROWSER CORS BLOCKED FILE:// — RUN launch-radar.bat FOR LIVE DATA", "warn");
+          state.simMode = true;
+          document.getElementById("btnSim").classList.add("active");
+          initSimFleet();
+          ingestAircraft(stepSimFleet(1));
+          el.feedReadout.textContent = "SIM (FALLBACK)";
+          el.footerStatus.textContent = "OFFLINE FALLBACK — SYNTHETIC TRACKS";
+        } else {
+          el.feedReadout.textContent = "RETRYING...";
+          el.footerStatus.textContent = "FEED ERROR — RETRYING ON NEXT POLL";
+        }
+      }
+
+      function ingestAircraft(list) {
+        const now = performance.now();
+        const seen = new Set();
+
+        for (const raw of list) {
+          if (!raw.hex) continue;
+          const dist = haversineNm(state.lat, state.lon, raw.lat, raw.lon);
+          if (dist > state.rangeNm * 1.15) continue;
+          const brg = bearingDeg(state.lat, state.lon, raw.lat, raw.lon);
+          seen.add(raw.hex);
+
+          const existing = state.planes.get(raw.hex);
+          if (existing) {
+            existing.history.push({ lat: existing.lat, lon: existing.lon });
+            if (existing.history.length > 10) existing.history.shift();
+            Object.assign(existing, raw, { dist, brg, lastSeen: now });
+          } else {
+            state.planes.set(raw.hex, {
+              ...raw,
+              dist,
+              brg,
+              lastSeen: now,
+              history: [],
+            });
+            if (state.planes.size <= 40) {
+              addLog(`ACQ ${raw.callsign} (${raw.type}) ${dist.toFixed(1)}NM BRG ${Math.round(brg)}°`, "acq");
+              playBlip(980, 0.04, "sine", 0.025);
+            }
+          }
+
+          if (raw.squawk === "7700" || raw.squawk === "7600" || raw.squawk === "7500") {
+            addLog(`ALERT: ${raw.callsign} SQUAWK ${raw.squawk}`, "warn");
+          }
+        }
+
+        // Prune stale contacts (> 35s)
+        for (const [hex, p] of state.planes.entries()) {
+          if (!seen.has(hex) && now - p.lastSeen > 35000) {
+            state.planes.delete(hex);
+            if (state.selectedHex === hex) state.selectedHex = null;
+          }
+        }
+
+        if (!state.selectedHex && state.planes.size > 0) {
+          const sorted = getSortedPlanes();
+          state.selectedHex = sorted[0].hex;
+        }
+
+        updateSidebarUI();
+      }
+
+      function getSortedPlanes() {
+        return Array.from(state.planes.values()).sort((a, b) => a.dist - b.dist);
+      }
+
+      // --- UI UPDATES ---
+      function updateSidebarUI() {
+        const sorted = getSortedPlanes();
+        el.statCount.textContent = sorted.length;
+        el.contactsCountBadge.textContent = `${sorted.length} TRACKED`;
+
+        if (sorted.length > 0) {
+          el.statClosest.textContent = sorted[0].dist.toFixed(1);
+          el.statMaxAlt.textContent = Math.max(...sorted.map((p) => p.alt)).toLocaleString();
+          el.statMaxSpd.textContent = Math.max(...sorted.map((p) => p.gs));
+        } else {
+          el.statClosest.textContent = "--";
+          el.statMaxAlt.textContent = "--";
+          el.statMaxSpd.textContent = "--";
+        }
+
+        // Altitude bands
+        let high = 0, med = 0, low = 0, gnd = 0;
+        for (const p of sorted) {
+          if (p.alt >= 30000) high++;
+          else if (p.alt >= 15000) med++;
+          else if (p.alt >= 5000) low++;
+          else gnd++;
+        }
+        const total = Math.max(1, sorted.length);
+        el.barHigh.style.width = `${(high / total) * 100}%`;
+        el.barMed.style.width = `${(med / total) * 100}%`;
+        el.barLow.style.width = `${(low / total) * 100}%`;
+        el.barGnd.style.width = `${(gnd / total) * 100}%`;
+        el.cntHigh.textContent = high;
+        el.cntMed.textContent = med;
+        el.cntLow.textContent = low;
+        el.cntGnd.textContent = gnd;
+
+        // Contacts Table
+        const frag = document.createDocumentFragment();
+        for (const p of sorted.slice(0, 60)) {
+          const tr = document.createElement("tr");
+          if (p.hex === state.selectedHex) tr.classList.add("selected");
+          if (["7500", "7600", "7700"].includes(p.squawk)) tr.classList.add("emergency");
+          const vArrow = p.vrate > 250 ? "▲" : p.vrate < -250 ? "▼" : "";
+          tr.innerHTML = `
+            <td>${p.callsign}</td>
+            <td>${p.type}</td>
+            <td>${p.alt >= 18000 ? "FL" + Math.round(p.alt / 100) : p.alt}${vArrow}</td>
+            <td>${p.gs}kt</td>
+            <td>${p.dist.toFixed(1)}</td>
+            <td>${String(Math.round(p.brg)).padStart(3, "0")}°</td>
+          `;
+          tr.addEventListener("click", () => {
+            state.selectedHex = p.hex;
+            state.autoCycle = false;
+            document.getElementById("btnAutoCycle").classList.remove("active");
+            playBlip(1320, 0.05, "triangle", 0.04);
+            updateSidebarUI();
+          });
+          frag.appendChild(tr);
+        }
+        el.contactsBody.innerHTML = "";
+        el.contactsBody.appendChild(frag);
+
+        updateTargetCard();
+      }
+
+      function updateTargetCard() {
+        const p = state.planes.get(state.selectedHex);
+        if (!p) {
+          el.tCallsign.textContent = "NO LOCK";
+          el.tSub.textContent = "SCANNING SECTOR...";
+          el.tHex.textContent = "HEX: ------";
+          el.tSquawk.textContent = "SQK: ----";
+          el.tAlt.textContent = "--";
+          el.tSpd.textContent = "--";
+          el.tHdg.textContent = "--";
+          el.tVrate.textContent = "--";
+          el.tDist.textContent = "--";
+          el.tBrg.textContent = "--";
+          return;
+        }
+        el.tCallsign.textContent = p.callsign;
+        el.tSub.textContent = `TYPE: ${p.type} // REG: ${p.reg}`;
+        el.tHex.textContent = `HEX: ${p.hex}`;
+        el.tSquawk.textContent = `SQK: ${p.squawk}`;
+        el.tAlt.textContent = `${p.alt.toLocaleString()} FT`;
+        el.tSpd.textContent = `${p.gs} KTS`;
+        el.tHdg.textContent = `${String(p.track).padStart(3, "0")}°`;
+        const vrPrefix = p.vrate > 0 ? "+" : "";
+        el.tVrate.textContent = `${vrPrefix}${p.vrate} FPM`;
+        el.tDist.textContent = `${p.dist.toFixed(1)} NM`;
+        el.tBrg.textContent = `${String(Math.round(p.brg)).padStart(3, "0")}°`;
+      }
+
+      // --- WORLD VECTOR MAP (TOPOJSON) ---
+      function decodeTopoArcs(topo) {
+        const { scale = [1, 1], translate = [0, 0] } = topo.transform || {};
+        return topo.arcs.map((arc) => {
+          let x = 0, y = 0;
+          return arc.map((pt) => {
+            x += pt[0];
+            y += pt[1];
+            return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
+          });
+        });
+      }
+
+      function stitchRing(arcIndices, decodedArcs) {
+        const pts = [];
+        for (const idx of arcIndices) {
+          const arc = idx >= 0 ? decodedArcs[idx] : decodedArcs[~idx].slice().reverse();
+          for (let i = pts.length ? 1 : 0; i < arc.length; i++) {
+            pts.push(arc[i]);
+          }
+        }
+        return pts;
+      }
+
+      async function loadWorldMap() {
+        const urls = ["./countries-50m.json", "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json"];
+        for (const url of urls) {
+          try {
+            const topo = await fetchWithTimeout(url, 8000);
+            const decodedArcs = decodeTopoArcs(topo);
+            const obj = topo.objects.countries || Object.values(topo.objects)[0];
+            const rings = [];
+
+            const pushRing = (arcList) => {
+              const pts = stitchRing(arcList, decodedArcs);
+              if (pts.length < 3) return;
+              let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
+              for (const [lon, lat] of pts) {
+                if (lon < minLon) minLon = lon;
+                if (lon > maxLon) maxLon = lon;
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+              }
+              rings.push({ pts, minLon, maxLon, minLat, maxLat });
+            };
+
+            for (const geom of obj.geometries) {
+              if (geom.type === "Polygon") {
+                for (const ring of geom.arcs) pushRing(ring);
+              } else if (geom.type === "MultiPolygon") {
+                for (const poly of geom.arcs) {
+                  for (const ring of poly) pushRing(ring);
+                }
+              }
+            }
+            state.mapRings = rings;
+            state.mapCacheKey = "";
+            el.hudMapStatus.textContent = "ON (50M)";
+            addLog(`VECTOR MAP LOADED (${rings.length} CONTOURS)`, "acq");
+            return;
+          } catch (_) {}
+        }
+        el.hudMapStatus.textContent = "UNAVAILABLE";
+      }
+
+      function getCachedMapPath(cx, cy, radius, w, h) {
+        const key = `${state.lat.toFixed(4)}|${state.lon.toFixed(4)}|${state.rangeNm}|${w.toFixed(0)}|${h.toFixed(0)}`;
+        if (key === state.mapCacheKey && state.cachedMapPath) return state.cachedMapPath;
+
+        const path = new Path2D();
+        const nmPerPx = state.rangeNm / radius;
+        const halfDiagNm = Math.hypot(w / 2, h / 2) * nmPerPx * 1.25;
+        const latPad = halfDiagNm / 60;
+        const lonPad = latPad / Math.max(0.2, Math.cos(toRad(state.lat)));
+        const minLat = state.lat - latPad, maxLat = state.lat + latPad;
+        const minLon = state.lon - lonPad, maxLon = state.lon + lonPad;
+
+        for (const ring of state.mapRings) {
+          if (ring.maxLat < minLat || ring.minLat > maxLat || ring.maxLon < minLon || ring.minLon > maxLon) {
+            continue;
+          }
+          let moved = false;
+          for (let i = 0; i < ring.pts.length; i++) {
+            const [lon, lat] = ring.pts[i];
+            const dist = haversineNm(state.lat, state.lon, lat, lon);
+            const brg = bearingDeg(state.lat, state.lon, lat, lon);
+            const r = (dist / state.rangeNm) * radius;
+            const rad = toRad(brg - 90);
+            const x = cx + Math.cos(rad) * r;
+            const y = cy + Math.sin(rad) * r;
+            if (!moved) {
+              path.moveTo(x, y);
+              moved = true;
+            } else {
+              path.lineTo(x, y);
+            }
+          }
+        }
+
+        state.mapCacheKey = key;
+        state.cachedMapPath = path;
+        return path;
+      }
+
+      // --- RADAR RENDERING (60 FPS) ---
+      function getCssVar(name) {
+        return getComputedStyle(document.body).getPropertyValue(name).trim();
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+        canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function projectPlane(p, cx, cy, radius, dtSec) {
+        // Dead-reckoning interpolation between API polls
+        const travelNm = (p.gs / 3600) * Math.min(dtSec, 12);
+        const est = destinationPoint(p.lat, p.lon, travelNm, p.track);
+        const dist = haversineNm(state.lat, state.lon, est.lat, est.lon);
+        const brg = bearingDeg(state.lat, state.lon, est.lat, est.lon);
+        const r = (dist / state.rangeNm) * radius;
+        const rad = toRad(brg - 90);
+        return {
+          x: cx + Math.cos(rad) * r,
+          y: cy + Math.sin(rad) * r,
+          dist,
+          brg,
+        };
+      }
+
+      function renderLoop(now) {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+        const cx = w / 2;
+        const cy = h / 2;
+        const radius = Math.max(60, Math.min(w, h) * 0.43);
+
+        const primary = getCssVar("--primary");
+        const primaryDim = getCssVar("--primary-dim");
+        const secondary = getCssVar("--secondary");
+        const danger = getCssVar("--danger");
+        const text = getCssVar("--text");
+
+        // Pure OLED black clear
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, w, h);
+
+        // Subtle Lat/Lon Graticule Grid
+        const pxPerNm = radius / state.rangeNm;
+        const degStep = state.rangeNm > 160 ? 2 : 1;
+        const halfLatSpan = (h / 2) / (pxPerNm * 60) + degStep;
+        const cosLat = Math.max(0.2, Math.cos(toRad(state.lat)));
+        const halfLonSpan = (w / 2) / (pxPerNm * 60 * cosLat) + degStep;
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const startLat = Math.floor((state.lat - halfLatSpan) / degStep) * degStep;
+        for (let la = startLat; la <= state.lat + halfLatSpan; la += degStep) {
+          const y = cy - (la - state.lat) * 60 * pxPerNm;
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+        }
+        const startLon = Math.floor((state.lon - halfLonSpan) / degStep) * degStep;
+        for (let lo = startLon; lo <= state.lon + halfLonSpan; lo += degStep) {
+          const x = cx + (lo - state.lon) * 60 * cosLat * pxPerNm;
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h);
+        }
+        ctx.stroke();
+
+        // Full-bleed Vector Country Contours
+        if (state.mapEnabled && state.mapRings.length > 0) {
+          const mapPath = getCachedMapPath(cx, cy, radius, w, h);
+          ctx.fillStyle = "rgba(255, 255, 255, 0.028)";
+          ctx.fill(mapPath);
+          ctx.strokeStyle = primaryDim;
+          ctx.lineWidth = 1.1;
+          ctx.stroke(mapPath);
+        }
+
+        // Subtle center viewport crosshair
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, cy);
+        ctx.lineTo(cx + 8, cy);
+        ctx.moveTo(cx, cy - 8);
+        ctx.lineTo(cx, cy + 8);
+        ctx.stroke();
+
+        // Home Observer Marker (moves with map when panned)
+        const homeDist = haversineNm(state.lat, state.lon, state.homeLat, state.homeLon);
+        const homeBrg = bearingDeg(state.lat, state.lon, state.homeLat, state.homeLon);
+        const homeR = (homeDist / state.rangeNm) * radius;
+        const homeRad = toRad(homeBrg - 90);
+        const hx = cx + Math.cos(homeRad) * homeR;
+        const hy = cy + Math.sin(homeRad) * homeR;
+        ctx.fillStyle = secondary;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = secondary;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 8, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw Aircraft
+        for (const p of state.planes.values()) {
+          const dtSec = (now - p.lastSeen) / 1000;
+          const proj = projectPlane(p, cx, cy, radius, dtSec);
+          if (proj.x < -40 || proj.x > w + 40 || proj.y < -40 || proj.y > h + 40) continue;
+
+          p._screenX = proj.x;
+          p._screenY = proj.y;
+
+          const isSelected = p.hex === state.selectedHex;
+          const isEmerg = ["7500", "7600", "7700"].includes(p.squawk);
+          const color = isEmerg ? danger : isSelected ? secondary : primary;
+
+          // History dots
+          ctx.fillStyle = primaryDim;
+          for (const hPt of p.history) {
+            const hd = haversineNm(state.lat, state.lon, hPt.lat, hPt.lon);
+            const hb = bearingDeg(state.lat, state.lon, hPt.lat, hPt.lon);
+            const hr = (hd / state.rangeNm) * radius;
+            const hrad = toRad(hb - 90);
+            ctx.fillRect(cx + Math.cos(hrad) * hr - 1, cy + Math.sin(hrad) * hr - 1, 2, 2);
+          }
+
+          // Bearing line if selected
+          if (isSelected) {
+            ctx.save();
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = secondary;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(hx, hy);
+            ctx.lineTo(proj.x, proj.y);
+            ctx.stroke();
+            ctx.restore();
+
+            // Target Lock Brackets
+            const b = 12;
+            ctx.strokeStyle = secondary;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(proj.x - b, proj.y - b + 5);
+            ctx.lineTo(proj.x - b, proj.y - b);
+            ctx.lineTo(proj.x - b + 5, proj.y - b);
+
+            ctx.moveTo(proj.x + b - 5, proj.y - b);
+            ctx.lineTo(proj.x + b, proj.y - b);
+            ctx.lineTo(proj.x + b, proj.y - b + 5);
+
+            ctx.moveTo(proj.x - b, proj.y + b - 5);
+            ctx.lineTo(proj.x - b, proj.y + b);
+            ctx.lineTo(proj.x - b + 5, proj.y + b);
+
+            ctx.moveTo(proj.x + b - 5, proj.y + b);
+            ctx.lineTo(proj.x + b, proj.y + b);
+            ctx.lineTo(proj.x + b, proj.y + b - 5);
+            ctx.stroke();
+          }
+
+          // Velocity leader line
+          const hdgRad = toRad(p.track - 90);
+          const leaderLen = Math.min(26, Math.max(8, p.gs / 24));
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(proj.x, proj.y);
+          ctx.lineTo(proj.x + Math.cos(hdgRad) * leaderLen, proj.y + Math.sin(hdgRad) * leaderLen);
+          ctx.stroke();
+
+          // Aircraft Chevron
+          ctx.save();
+          ctx.translate(proj.x, proj.y);
+          ctx.rotate(hdgRad);
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(6, 0);
+          ctx.lineTo(-4, -4);
+          ctx.lineTo(-2, 0);
+          ctx.lineTo(-4, 4);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          // Data Tag
+          const altTag = p.alt >= 18000 ? `FL${Math.round(p.alt / 100)}` : `${Math.round(p.alt / 100) * 100}`;
+          const vArrow = p.vrate > 250 ? "▲" : p.vrate < -250 ? "▼" : "";
+          ctx.fillStyle = isSelected ? secondary : text;
+          ctx.font = isSelected ? "bold 12px 'Share Tech Mono', monospace" : "11px 'Share Tech Mono', monospace";
+          ctx.fillText(p.callsign, proj.x + 10, proj.y - 2);
+          ctx.fillStyle = isEmerg ? danger : primary;
+          ctx.font = "10px 'Share Tech Mono', monospace";
+          ctx.fillText(`${altTag}${vArrow} ${p.gs}`, proj.x + 10, proj.y + 9);
+        }
+
+        // Poll progress bar
+        const elapsed = now - state.lastPollTime;
+        const pct = Math.min(100, (elapsed / POLL_INTERVAL_MS) * 100);
+        el.pollBar.style.width = `${pct}%`;
+
+        // Auto-cycle target every 12s for tent mode hands-free viewing
+        if (state.autoCycle && state.planes.size > 1 && now - state.lastCycleTime > 12000) {
+          state.lastCycleTime = now;
+          const sorted = getSortedPlanes();
+          const idx = sorted.findIndex((p) => p.hex === state.selectedHex);
+          const next = sorted[(idx + 1) % Math.min(sorted.length, 10)];
+          if (next) {
+            state.selectedHex = next.hex;
+            updateSidebarUI();
+          }
+        }
+
+        requestAnimationFrame(renderLoop);
+      }
+
+      // --- CLOCKS ---
+      function updateClocks() {
+        const d = new Date();
+        el.utcClock.textContent = d.toISOString().slice(11, 19) + "Z";
+        el.localClock.textContent = d.toTimeString().slice(0, 8);
+      }
+
+      // --- GEOLOCATION ---
+      function requestGeolocation() {
+        if (!navigator.geolocation) {
+          updatePosReadout();
+          addLog("GEOLOCATION UNAVAILABLE — USING DEFAULT COORDS", "warn");
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            state.lat = pos.coords.latitude;
+            state.lon = pos.coords.longitude;
+            state.homeLat = state.lat;
+            state.homeLon = state.lon;
+            state.hasCustomLoc = true;
+            updatePosReadout();
+            addLog(`GPS LOCK ACQUIRED: ${formatCoords(state.lat, state.lon)}`, "acq");
+            if (state.simMode) initSimFleet();
+            pollAircraft();
+          },
+          () => {
+            updatePosReadout();
+            addLog("GPS DENIED — USING DEFAULT COORDS (CLICK LOC TO SET)", "warn");
+          },
+          { timeout: 6000 }
+        );
+      }
+
+      function updatePosReadout() {
+        const str = formatCoords(state.lat, state.lon);
+        el.posReadout.textContent = str;
+        el.hudLatLon.textContent = str;
+      }
+
+      // --- INTERACTIONS (PAN, ZOOM, SELECT) ---
+      let dragState = { active: false, moved: false, startX: 0, startY: 0, startLat: 0, startLon: 0 };
+      let panPollTimer = null;
+
+      canvas.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        dragState = {
+          active: true,
+          moved: false,
+          startX: e.clientX,
+          startY: e.clientY,
+          startLat: state.lat,
+          startLon: state.lon,
+        };
+        canvas.classList.add("dragging");
+        canvas.setPointerCapture(e.pointerId);
+      });
+
+      canvas.addEventListener("pointermove", (e) => {
+        if (!dragState.active) return;
+        const dx = e.clientX - dragState.startX;
+        const dy = e.clientY - dragState.startY;
+        if (Math.hypot(dx, dy) > 4) dragState.moved = true;
+        if (!dragState.moved) return;
+
+        const rect = canvas.parentElement.getBoundingClientRect();
+        const radius = Math.max(60, Math.min(rect.width, rect.height) * 0.43);
+        const nmPerPx = state.rangeNm / radius;
+        const dLat = (dy * nmPerPx) / 60;
+        const cosLat = Math.max(0.2, Math.cos(toRad(dragState.startLat)));
+        const dLon = (-dx * nmPerPx) / (60 * cosLat);
+
+        state.lat = Math.max(-85, Math.min(85, dragState.startLat + dLat));
+        state.lon = ((dragState.startLon + dLon + 540) % 360) - 180;
+        updatePosReadout();
+      });
+
+      function endDrag(e) {
+        if (!dragState.active) return;
+        const wasMoved = dragState.moved;
+        dragState.active = false;
+        canvas.classList.remove("dragging");
+        try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+
+        if (wasMoved) {
+          clearTimeout(panPollTimer);
+          panPollTimer = setTimeout(() => pollAircraft(), 250);
+          return;
+        }
+
+        // Click without drag -> select aircraft
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        let best = null;
+        let bestDist = 28;
+        for (const p of state.planes.values()) {
+          if (typeof p._screenX !== "number") continue;
+          const d = Math.hypot(p._screenX - mx, p._screenY - my);
+          if (d < bestDist) {
+            bestDist = d;
+            best = p;
+          }
+        }
+        if (best) {
+          state.selectedHex = best.hex;
+          state.autoCycle = false;
+          document.getElementById("btnAutoCycle").classList.remove("active");
+          playBlip(1320, 0.05, "triangle", 0.04);
+          updateSidebarUI();
+        }
+      }
+
+      canvas.addEventListener("pointerup", endDrag);
+      canvas.addEventListener("pointercancel", endDrag);
+
+      canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.15 : 0.87;
+        state.rangeNm = Math.round(Math.max(10, Math.min(400, state.rangeNm * factor)));
+        el.hudRange.textContent = state.rangeNm;
+        document.querySelectorAll(".range-btn").forEach((b) => {
+          b.classList.toggle("active", Number(b.dataset.range) === state.rangeNm);
+        });
+        clearTimeout(panPollTimer);
+        panPollTimer = setTimeout(() => pollAircraft(), 300);
+      }, { passive: false });
+
+      function recenterMap() {
+        state.lat = state.homeLat;
+        state.lon = state.homeLon;
+        updatePosReadout();
+        pollAircraft();
+      }
+
+      document.getElementById("btnRecenter").addEventListener("click", recenterMap);
+
+      document.querySelectorAll(".range-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".range-btn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          state.rangeNm = Number(btn.dataset.range);
+          el.hudRange.textContent = state.rangeNm;
+          playBlip(720, 0.04);
+          pollAircraft();
+        });
+      });
+
+      function cycleTheme() {
+        document.body.classList.remove(...THEMES.filter(Boolean));
+        state.themeIdx = (state.themeIdx + 1) % THEMES.length;
+        if (THEMES[state.themeIdx]) document.body.classList.add(THEMES[state.themeIdx]);
+        addLog(`DISPLAY THEME -> ${THEME_NAMES[state.themeIdx]}`);
+        playBlip(1050, 0.04);
+      }
+
+      function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+
+      async function toggleWakeLock() {
+        const btn = document.getElementById("btnWake");
+        if (state.wakeLock) {
+          await state.wakeLock.release();
+          state.wakeLock = null;
+          btn.classList.remove("active");
+          addLog("DISPLAY WAKE-LOCK RELEASED");
+        } else if ("wakeLock" in navigator) {
+          try {
+            state.wakeLock = await navigator.wakeLock.request("screen");
+            btn.classList.add("active");
+            addLog("DISPLAY WAKE-LOCK ENGAGED (TENT MODE READY)", "acq");
+          } catch {
+            addLog("WAKE-LOCK BLOCKED BY BROWSER", "warn");
+          }
+        } else {
+          addLog("WAKE-LOCK API NOT SUPPORTED", "warn");
+        }
+      }
+
+      function toggleMap() {
+        state.mapEnabled = !state.mapEnabled;
+        document.getElementById("btnMap").classList.toggle("active", state.mapEnabled);
+        el.hudMapStatus.textContent = state.mapEnabled ? (state.mapRings.length ? "ON (50M)" : "LOADING") : "OFF";
+      }
+
+      document.getElementById("btnMap").addEventListener("click", toggleMap);
+      document.getElementById("btnTheme").addEventListener("click", cycleTheme);
+      document.getElementById("btnFs").addEventListener("click", toggleFullscreen);
+      document.getElementById("btnWake").addEventListener("click", toggleWakeLock);
+
+      document.getElementById("btnCrt").addEventListener("click", (e) => {
+        state.crtEnabled = !state.crtEnabled;
+        el.crtOverlay.classList.toggle("hidden", !state.crtEnabled);
+        e.currentTarget.classList.toggle("active", state.crtEnabled);
+      });
+
+      document.getElementById("btnAudio").addEventListener("click", (e) => {
+        state.audioEnabled = !state.audioEnabled;
+        e.currentTarget.classList.toggle("active", state.audioEnabled);
+        if (state.audioEnabled) playBlip(1200, 0.06);
+      });
+
+      document.getElementById("btnAutoCycle").addEventListener("click", (e) => {
+        state.autoCycle = !state.autoCycle;
+        e.currentTarget.classList.toggle("active", state.autoCycle);
+        state.lastCycleTime = performance.now();
+      });
+
+      document.getElementById("btnSim").addEventListener("click", (e) => {
+        state.simMode = !state.simMode;
+        e.currentTarget.classList.toggle("active", state.simMode);
+        state.planes.clear();
+        if (state.simMode) initSimFleet();
+        pollAircraft();
+      });
+
+      // Location Modal
+      document.getElementById("btnLoc").addEventListener("click", () => {
+        el.inputLat.value = state.lat.toFixed(4);
+        el.inputLon.value = state.lon.toFixed(4);
+        el.locModal.classList.add("open");
+      });
+      document.getElementById("btnCancelLoc").addEventListener("click", () => {
+        el.locModal.classList.remove("open");
+      });
+      document.getElementById("btnUseGps").addEventListener("click", () => {
+        el.locModal.classList.remove("open");
+        requestGeolocation();
+      });
+      document.getElementById("btnSaveLoc").addEventListener("click", () => {
+        const lat = parseFloat(el.inputLat.value);
+        const lon = parseFloat(el.inputLon.value);
+        if (!Number.isNaN(lat) && !Number.isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+          state.lat = lat;
+          state.lon = lon;
+          state.homeLat = lat;
+          state.homeLon = lon;
+          state.planes.clear();
+          updatePosReadout();
+          el.locModal.classList.remove("open");
+          addLog(`COORDINATES SET: ${formatCoords(lat, lon)}`, "acq");
+          if (state.simMode) initSimFleet();
+          pollAircraft();
+        }
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (el.locModal.classList.contains("open")) return;
+        if (e.key === "f" || e.key === "F") toggleFullscreen();
+        if (e.key === "c" || e.key === "C") cycleTheme();
+        if (e.key === "m" || e.key === "M") toggleMap();
+        if (e.key === "r" || e.key === "R") recenterMap();
+      });
+
+      window.addEventListener("resize", resizeCanvas);
+
+      // --- BOOT ---
+      resizeCanvas();
+      updatePosReadout();
+      updateClocks();
+      setInterval(updateClocks, 1000);
+      addLog("AIRSPACE ADS-B SCOPE INITIALIZED");
+      loadWorldMap();
+      requestGeolocation();
+      pollAircraft();
+      setInterval(pollAircraft, POLL_INTERVAL_MS);
+      requestAnimationFrame(renderLoop);
+    })();
+  </script>
+</body>
+</html>
